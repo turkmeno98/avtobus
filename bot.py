@@ -119,12 +119,12 @@ def haversine(lat1, lon1, lat2, lon2):
     return R * c
 
 def get_user_progress_on_route(lat, lon):
-    zhirovsk = (48.565, 44.766)
-    medveditsa = (48.628, 44.923)
-    total_distance = 13.3
-    
-    dist_start = haversine(lat, lon, *zhirovsk)
+    zhirovsk = (50.976412, 44.777647)
+    medveditsa = (51.082652, 44.816874)
+    total_distance = haversine(*zhirnovsk_stop, *medveditsa_stop)  # ~12.7км
+    dist_start = haversine(lat, lon, *zhirnovsk_stop)
     progress = min(dist_start / total_distance * 100, 100)
+    
     return progress, dist_start
 
 def calculate_real_eta(user_lat, user_lon):
