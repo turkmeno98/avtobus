@@ -226,12 +226,12 @@ async def show_schedule(msg: Message):
     
     for time_str in to_med:
         arrival = calculate_arrival_time(time_str)
-        text += f"• {time_str} → {arrival}\n"
+        text += f"• {time_str} → {arrival}"
     
     text += f"\n🚌 Медведица → Жирновск:\n"
     for time_str in back:
         arrival = calculate_arrival_time(time_str)
-        text += f"• {time_str} → {arrival}\n"
+        text += f"• {time_str} → {arrival}"
     
     if nearest_schedule:
         next_time, next_dir, minutes = nearest_schedule
