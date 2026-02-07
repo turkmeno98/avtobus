@@ -144,9 +144,9 @@ def calculate_real_eta(user_lat, user_lon):
 # 📱 Пользовательские команды
 @dp.message(F.text == '/start')
 async def start_handler(msg: Message):
-    text = """🚌 Бот расписания Жирновск ↔ Медведица (13.3км)
+    text = """🚌 Бот расписания Жирновск ↔ Медведица
 
-📋 /расписание - полное расписание + GPS автобуса + ближайший рейс
+📋 /расписание - полное расписание
 📍 Отправьте геолокацию для точного ETA
 
 👨‍✈️ Водитель: /driver_mode"""
@@ -218,14 +218,14 @@ async def show_schedule(msg: Message):
 
 {gps_status}
 
-🚌 Жирновск → Медведица (13.3км, ~18мин):
+🚌 Жирновск → Медведица:
 """
     
     for time_str in to_med:
         arrival = calculate_arrival_time(time_str)
         text += f"• {time_str} → {arrival}\n"
     
-    text += f"\n🚌 Медведица → Жирновск (13.3км, ~18мин):\n"
+    text += f"\n🚌 Медведица → Жирновск:\n"
     for time_str in back:
         arrival = calculate_arrival_time(time_str)
         text += f"• {time_str} → {arrival}\n"
@@ -233,7 +233,7 @@ async def show_schedule(msg: Message):
     if nearest_schedule:
         next_time, next_dir, minutes = nearest_schedule
         arrival = calculate_arrival_time(next_time)
-        text += f"\n🔔 Ближайший по графику:\n{next_time} ({next_dir}) → {arrival}\n⏰ Через {minutes} мин"
+        text += f"\n🔔 Ближайший по графику:\n{next_time} ({next_dir})"
     else:
         text += f"\n🔔 Сегодня рейсов больше нет"
     
