@@ -14,7 +14,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 API_TOKEN = os.getenv('BOT_TOKEN')
 ADMIN_IDS = [1135333763]  # Твой Telegram ID (@userinfobot)
-DRIVER_ID = 1135333763  # ID водителя
+DRIVER_ID = 1135333753  # ID водителя
 
 # Инициализация
 logging.basicConfig(level=logging.INFO)
