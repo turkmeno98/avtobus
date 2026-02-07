@@ -139,32 +139,36 @@ def calculate_real_eta(user_lat, user_lon):
 async def start_handler(msg: Message):
     is_admin = msg.from_user.id in ADMIN_IDS
     
-    text = """🚌 Бот расписания Жирновск ↔ Медведица
-
-📋 /расписание - полное расписание
-📍 Отправьте геолокацию для точного ETA
-👨‍✈️ Водитель: /driver_mode"""
+    # ✅ ОДИН текст БЕЗ \n
+    text = "🚌 Бот расписания Жирновск ↔ Медведица. /расписание"
     
-    # Клавиатура для обычных пользователей
     kb = ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="📋 Расписание", request_location=False)],
+        [KeyboardButton(text="📋 Расписание")],
         [KeyboardButton(text="📍 Моя геолокация", request_location=True)]
     ], resize_keyboard=True)
     
-    # ✅ ДОБАВЛЯЕМ КНОПКУ АДМИНА
+    # ✅ КНОПКА АДМИНА
     if is_admin:
-        text += "\n\n🔧 Админ-панель доступна!"
         kb.keyboard.append([KeyboardButton(text="🌐 Админ панель")])
+        text += " | 🔧 Админ"
     
     await msg.answer(text, reply_markup=kb)
 
-# ✅ НОВЫЙ ХЕНДЛЕР ДЛЯ КНОПКИ АДМИНА
+# ✅ ПРОСТОЙ хендлер кнопки
 @dp.message(F.text == "🌐 Админ панель")
 async def admin_button(msg: Message):
     if msg.from_user.id not in ADMIN_IDS:
         await msg.answer("❌ Нет доступа!")
         return
-    await admin_menu(msg)
+    
+    # ✅ ВЫЗЫВАЕМ админ меню
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton("📅 Расписание", callback_data="base_schedule")],
+        [InlineKeyboardButton("❌ Отменить рейс", callback_data="cancel_reys")],
+        [InlineKeyboardButton("🎉 Праздники", callback_data="holidays")]
+    ])
+    await msg.answer("🔧 АДМИН-ПАНЕЛЬ РАБОТАЕТ!", reply_markup=kb)
+
 
 @dp.message(F.text.in_(['📋 Расписание', '/расписание']))
 async def show_schedule(msg: Message):
