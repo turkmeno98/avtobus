@@ -100,8 +100,7 @@ def get_schedule(direction, date_str=None):
     return base_times
 
 def calculate_arrival_time(departure_time_str):
-    data = load_schedule()
-    settings = data.get('настройки', {'время_в_пути_мин': 18})
+    return departure_time_str  # ✅ Возвращает ТОЛЬКО время отправления!
     
     try:
         dep_time = datetime.strptime(departure_time_str, '%H:%M')
