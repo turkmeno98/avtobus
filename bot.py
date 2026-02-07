@@ -13,6 +13,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
+load_dotenv()
+
 API_TOKEN = os.getenv('BOT_TOKEN')
 ADMIN_IDS = [1135333763]  # Твой Telegram ID (@userinfobot)
 DRIVER_ID = 1135333763  # ID водителя
