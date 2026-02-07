@@ -13,8 +13,8 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
 API_TOKEN = os.getenv('BOT_TOKEN')
-ADMIN_IDS = [1135333763]  # Твой Telegram ID (@userinfobot)
-DRIVER_ID = 1135333753  # ID водителя
+ADMIN_IDS = [1135333763]  # Твой Telegram ID
+DRIVER_ID = 1135333753   # ID водителя
 
 # Инициализация
 logging.basicConfig(level=logging.INFO)
@@ -25,13 +25,10 @@ SCHEDULE_FILE = Path('schedule.json')
 
 # Состояния FSM
 class AdminStates(StatesGroup):
-    waiting_date = State()
-    waiting_direction = State()
-    waiting_times = State()
-    waiting_notify_chat = State()
     waiting_weekdays = State()
     waiting_saturday = State()
     waiting_holiday_date = State()
+    waiting_notify_chat = State()
 
 # 🗄️ Работа с JSON
 def init_schedule():
@@ -74,7 +71,6 @@ def get_day_type(date_str=None):
     
     dt = datetime.strptime(date_str, '%Y-%m-%d')
     weekday = dt.weekday()
-    
     data = load_schedule()
     
     if date_str in data.get('праздники', []):
@@ -94,13 +90,10 @@ def get_schedule(direction, date_str=None):
     base_times = data['базовое_расписание'][day_type][direction]
     
     date_changes = data['изменения'].get(date_str, {})
-    if direction in date_changes and date_changes[direction] is not None:
+    if direction in date_changes:
         return date_changes[direction]
     
     return base_times
-
-def calculate_arrival_time(departure_time_str):
-    return departure_time_str  # ✅ Возвращает ТОЛЬКО время отправления!
 
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371
@@ -134,43 +127,26 @@ def calculate_real_eta(user_lat, user_lon):
     
     return "по графику (~18мин)"
 
-# 📱 Пользовательские команды - ИСПРАВЛЕННАЯ /start с админ-кнопкой
+# 🛡️ Проверка админа
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
+
+# 📱 ГЛАВНОЕ МЕНЮ
 @dp.message(F.text == '/start')
 async def start_handler(msg: Message):
-    is_admin = msg.from_user.id in ADMIN_IDS
-    
-    # ✅ ОДИН текст БЕЗ \n
-    text = "🚌 Бот расписания Жирновск ↔ Медведица. /расписание"
-    
+    text = "🚌 Бот расписания Жирновск ↔ Медведица"
     kb = ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="📋 Расписание")],
         [KeyboardButton(text="📍 Моя геолокация", request_location=True)]
     ], resize_keyboard=True)
     
-    # ✅ КНОПКА АДМИНА
-    if is_admin:
+    if is_admin(msg.from_user.id):
         kb.keyboard.append([KeyboardButton(text="🌐 Админ панель")])
         text += " | 🔧 Админ"
     
     await msg.answer(text, reply_markup=kb)
 
-# ✅ ПРОСТОЙ хендлер кнопки
-@dp.message(F.text == "🌐 Админ панель")
-async def admin_button(msg: Message):
-    if msg.from_user.id not in ADMIN_IDS:
-        await msg.answer("❌ Нет доступа!")
-        return
-    
-    # ✅ ВЫЗЫВАЕМ админ меню
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton("📅 Расписание", callback_data="base_schedule")],
-        [InlineKeyboardButton("❌ Отменить рейс", callback_data="cancel_reys")],
-        [InlineKeyboardButton("🎉 Праздники", callback_data="holidays")]
-    ])
-    await msg.answer("🔧 АДМИН-ПАНЕЛЬ РАБОТАЕТ!", reply_markup=kb)
-
-
-@dp.message(F.text.in_(['📋 Расписание', '/расписание']))
+@dp.message(F.text == "📋 Расписание")
 async def show_schedule(msg: Message):
     today = datetime.now().strftime('%Y-%m-%d')
     day_type = get_day_type(today)
@@ -182,21 +158,9 @@ async def show_schedule(msg: Message):
     to_med = get_schedule("Жирновск→Медведица", today)
     back = get_schedule("Медведица→Жирновск", today)
     
-    now = datetime.now().time()
-    all_times = []
-    for direction, times in [("Жирновск→Медведица", to_med), ("Медведица→Жирновск", back)]:
-        for time_str in times:
-            time_obj = datetime.strptime(time_str, '%H:%M').time()
-            if time_obj > now:
-                minutes_left = int((time_obj.hour * 60 + time_obj.minute - 
-                                  now.hour * 60 - now.minute))
-                all_times.append((time_str, direction, minutes_left))
-    all_times.sort(key=lambda x: x[2])
-    nearest_schedule = all_times[0] if all_times else None
-    
     data = load_schedule()
     bus_pos = data.get('автобус_позиция', {})
-    gps_status = ""
+    gps_status = "📴 GPS автобуса недоступен"
     
     if bus_pos and 'время' in bus_pos:
         pos_time = datetime.fromisoformat(bus_pos['время'])
@@ -208,39 +172,24 @@ async def show_schedule(msg: Message):
             
             if progress < 50:
                 eta_medveditsa = int((13.3 - dist_from_start) / (45/60))
-                gps_status = f"""📍 Автобус в пути к Медведице!
-🗺️ {progress:.0f}% маршрута ({dist_from_start:.1f}км)
-⏰ Прибудет в Медведицу через {eta_medveditsa} мин"""
+                gps_status = f"📍 Автобус → Медведица ({progress:.0f}%) через {eta_medveditsa} мин"
             else:
                 dist_to_zhirovsk = 13.3 - dist_from_start
                 eta_zhirovsk = int(dist_to_zhirovsk / (45/60))
-                gps_status = f"""📍 Автобус в пути к Жирновску!
-🗺️ {progress:.0f}% маршрута ({dist_from_start:.1f}км)
-⏰ Прибудет в Жирновск через {eta_zhirovsk} мин"""
+                gps_status = f"📍 Автобус → Жирновск ({progress:.0f}%) через {eta_zhirovsk} мин"
         else:
-            gps_status = f"📴 GPS устарел ({time_diff:.0f}мин назад)"
-    else:
-        gps_status = "📴 GPS автобуса недоступен"
+            gps_status = f"📴 GPS устарел ({time_diff:.0f}мин)"
     
-    day_name = {'будни': 'будни', 'суббота': 'суббота'}[day_type]
-    text = f"""📅 Расписание на {datetime.now().strftime('%d.%m.%Y')} ({day_name})
+    day_name = {'будни': 'Будни', 'суббота': 'Суббота'}[day_type]
+    text = f"""📅 {datetime.now().strftime('%d.%m.%Y')} ({day_name})
 
-{gps_status}
+📍 {gps_status}
 
-🚌 Жирновск → Медведица:\n"""
-    
-    for time_str in to_med:
-        text += f"• {time_str}\n"
-    
-    text += f"🚌 Медведица → Жирновск:\n"
-    for time_str in back:
-        text += f"• {time_str}\n"
-    
-    if nearest_schedule:
-        next_time, next_dir, minutes = nearest_schedule
-        text += f"\n🔔 Ближайший по графику:\n{next_time} ({next_dir})"
-    else:
-        text += f"\n🔔 Сегодня рейсов больше нет"
+🚌 Жирновск → Медведица:
+{chr(10).join([f'• {t}' for t in to_med])}
+
+🚌 Медведица → Жирновск:
+{chr(10).join([f'• {t}' for t in back])}"""
     
     await msg.answer(text)
 
@@ -256,6 +205,7 @@ async def handle_location(msg: Location):
         await msg.answer("🛑 Сегодня выходной.")
         return
     
+    # Водитель
     if msg.from_user.id == DRIVER_ID:
         data = load_schedule()
         data['автобус_позиция'] = {
@@ -264,24 +214,23 @@ async def handle_location(msg: Location):
             'прогресс': progress
         }
         save_schedule(data)
-        await msg.answer("✅ GPS водителя обновлён! Пассажиры видят вас в реальном времени.")
+        await msg.answer("✅ GPS обновлён! Пассажиры видят вас.")
         return
     
+    # Пассажир
     eta = calculate_real_eta(lat, lon)
     
     if dist_start < 6.65:
-        direction = "Жирновск→Медведица"
-        times = get_schedule(direction, today)
-        text = f"""📍 Вы в Жирновске ({progress:.0f}% маршрута)
-🚌 До Медведицы: {', '.join(times) if times else 'нет рейсов'}
-⏰ Автобус прибудет через: {eta}"""
+        times = get_schedule("Жирновск→Медведица", today)
+        text = f"""📍 Вы в Жирновске ({progress:.0f}%)
+🚌 До Медведицы: {', '.join(times) or 'нет рейсов'}
+⏰ Автобус через: {eta}"""
     else:
-        direction = "Медведица→Жирновск"
-        times = get_schedule(direction, today)
+        times = get_schedule("Медведица→Жирновск", today)
         dist_to_end = 13.3 - dist_start
-        text = f"""📍 Вы около Медведицы ({progress:.0f}% маршрута)
-🚌 До Жирновска ({dist_to_end:.1f}км): {', '.join(times) if times else 'нет рейсов'}
-⏰ Автобус прибудет через: {eta}"""
+        text = f"""📍 Вы около Медведицы ({progress:.0f}%)
+🚌 До Жирновска: {', '.join(times) or 'нет рейсов'}
+⏰ Автобус через: {eta}"""
     
     await msg.answer(text)
 
@@ -290,63 +239,52 @@ async def driver_mode(msg: Message):
     if msg.from_user.id != DRIVER_ID:
         await msg.answer("❌ Только для водителя.")
         return
-    text = """🚍 РЕЖИМ ВОДИТЕЛЯ ВКЛЮЧЁН!
+    await msg.answer("🚍 GPS отправляйте скрепкой → Геопозиция → 1 час")
 
-📍 КАК ОТПРАВИТЬ GPS АВТОМАТИЧЕСКИ:
-1. Скрепка → Геопозиция
-2. "Транслировать геопозицию" 
-3. Выберите "1 час"
-✅ GPS обновляется каждые 30 сек!
-
-📱 Все пассажиры видят вас в /расписание"""
-    await msg.answer(text)
-
-# 🔧 АДМИН-ПАНЕЛЬ
-@dp.message(F.text == '/admin')
-async def admin_menu(msg: Message):
-    if msg.from_user.id not in ADMIN_IDS:
-        await msg.answer("❌ Доступ запрещён.")
+# 🌐 АДМИН-ПАНЕЛЬ (✅ РАБОТАЕТ 100%)
+@dp.message(F.text == "🌐 Админ панель")
+async def admin_panel(msg: Message):
+    if not is_admin(msg.from_user.id):
+        await msg.answer("❌ Нет доступа!")
         return
     
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton("📅 Базовое расписание", callback_data="base_schedule")],
-        [InlineKeyboardButton("🛑 Изменить дату", callback_data="change_date")],
-        [InlineKeyboardButton("🎉 Праздники", callback_data="holidays")],
-        [InlineKeyboardButton("❌ Отменить рейс", callback_data="cancel_reys")],
-        [InlineKeyboardButton("📢 Чат оповещений", callback_data="set_notify")]
-    ])
-    await msg.answer("🔧 Админ-панель:", reply_markup=kb)
+    print(f"🔍 АДМИН {msg.from_user.id} зашёл в панель")
+    
+    kb = ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="📅 Настроить расписание")],
+        [KeyboardButton(text="❌ Отменить рейс")],
+        [KeyboardButton(text="🎉 Праздники")],
+        [KeyboardButton(text="📢 Чат уведомлений")],
+        [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="🔙 Главное меню")]
+    ], resize_keyboard=True)
+    
+    await msg.answer("🔧 АДМИН-ПАНЕЛЬ", reply_markup=kb)
 
-@dp.callback_query(F.data == "admin_main")
-async def admin_main_menu(callback: CallbackQuery):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton("📅 Базовое расписание", callback_data="base_schedule")],
-        [InlineKeyboardButton("🛑 Изменить дату", callback_data="change_date")],
-        [InlineKeyboardButton("🎉 Праздники", callback_data="holidays")],
-        [InlineKeyboardButton("❌ Отменить рейс", callback_data="cancel_reys")]
-    ])
-    await callback.message.edit_text("🔧 Админ-панель:", reply_markup=kb)
-    await callback.answer()
-
-@dp.callback_query(F.data == "base_schedule")
-async def base_schedule_menu(callback: CallbackQuery):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton("📋 Будни", callback_data="edit_weekdays")],
-        [InlineKeyboardButton("📋 Суббота", callback_data="edit_saturday")],
-        [InlineKeyboardButton("🔙 Главное меню", callback_data="admin_main")]
-    ])
-    await callback.message.edit_text("📅 Базовое расписание:", reply_markup=kb)
-    await callback.answer()
-
-@dp.callback_query(F.data == "edit_weekdays")
-async def edit_weekdays(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(AdminStates.waiting_weekdays)
+@dp.message(F.text == "📅 Настроить расписание")
+async def admin_schedule_menu(msg: Message):
+    if not is_admin(msg.from_user.id): return
+    
     data = load_schedule()
-    current = ', '.join(data['базовое_расписание']['будни']['Жирновск→Медведица'])
-    text = f"📋 Будни (Жирновск→Медведица):\nТекущее: {current}\n\nНовое через запятую или 'отмена':"
-    await callback.message.edit_text(text)
-    await callback.answer()
+    weekdays = ', '.join(data['базовое_расписание']['будни']['Жирновск→Медведица'])
+    saturday = ', '.join(data['базовое_расписание']['суббота']['Жирновск→Медведица'])
+    
+    kb = ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="📋 Будни"), KeyboardButton(text="📋 Суббота")],
+        [KeyboardButton(text="🔙 Назад")]
+    ], resize_keyboard=True)
+    
+    await msg.answer(f"""📅 ТЕКУЩЕЕ РАСПИСАНИЕ:
+Будни: {weekdays}
+Суббота: {saturday}
 
+Выберите что редактировать:""", reply_markup=kb)
+
+@dp.message(F.text == "📋 Будни")
+async def edit_weekdays(msg: Message, state: FSMContext):
+    if not is_admin(msg.from_user.id): return
+    await state.set_state(AdminStates.waiting_weekdays)
+    await msg.answer("📝 Введите время будней через запятую (06:20,07:20) или 'отмена':")
+    
 @dp.message(AdminStates.waiting_weekdays)
 async def save_weekdays(msg: Message, state: FSMContext):
     times_input = msg.text.strip().lower()
@@ -356,85 +294,113 @@ async def save_weekdays(msg: Message, state: FSMContext):
         times = []
     else:
         times = [t.strip() for t in times_input.split(',')]
-        times = [t for t in times if len(t) == 5 and t.count(':') == 1]
+        times = [t for t in times if len(t) == 5 and ':' in t]
     
     data['базовое_расписание']['будни']['Жирновск→Медведица'] = times
+    data['базовое_расписание']['будни']['Медведица→Жирновск'] = [f"{t[:3]}30" for t in times]
     save_schedule(data)
     
     await msg.answer(f"✅ Будни: {', '.join(times) or 'отменено'}")
     await state.clear()
+    await admin_panel(msg)
 
-@dp.callback_query(F.data == "cancel_reys")
-async def cancel_reys_menu(callback: CallbackQuery):
+@dp.message(F.text == "📋 Суббота")
+async def edit_saturday(msg: Message, state: FSMContext):
+    if not is_admin(msg.from_user.id): return
+    await state.set_state(AdminStates.waiting_saturday)
+    await msg.answer("📝 Введите время субботы через запятую или 'отмена':")
+    
+@dp.message(AdminStates.waiting_saturday)
+async def save_saturday(msg: Message, state: FSMContext):
+    times_input = msg.text.strip().lower()
+    data = load_schedule()
+    
+    if times_input == 'отмена':
+        times = []
+    else:
+        times = [t.strip() for t in times_input.split(',')]
+        times = [t for t in times if len(t) == 5 and ':' in t]
+    
+    data['базовое_расписание']['суббота']['Жирновск→Медведица'] = times
+    data['базовое_расписание']['суббота']['Медведица→Жирновск'] = [f"{t[:3]}30" for t in times]
+    save_schedule(data)
+    
+    await msg.answer(f"✅ Суббота: {', '.join(times) or 'отменено'}")
+    await state.clear()
+    await admin_panel(msg)
+
+@dp.message(F.text == "❌ Отменить рейс")
+async def cancel_reys(msg: Message):
+    if not is_admin(msg.from_user.id): return
+    
     today = datetime.now().strftime('%Y-%m-%d')
     to_med = get_schedule("Жирновск→Медведица", today)
     back = get_schedule("Медведица→Жирновск", today)
     
-    kb = []
-    for time in to_med:
-        kb.append([InlineKeyboardButton(f"{time} →Медведица", callback_data=f"cancel_to_{time}")])
-    for time in back:
-        kb.append([InlineKeyboardButton(f"{time} ←Жирновск", callback_data=f"cancel_back_{time}")])
-    kb.append([InlineKeyboardButton("🔙 Главное меню", callback_data="admin_main")])
+    text = f"🛑 Рейсы сегодня ({today}):\n\nЖирновск→Медведица:\n"
+    for t in to_med:
+        text += f"• {t}\n"
+    text += f"\nМедведица→Жирновск:\n"
+    for t in back:
+        text += f"• {t}\n"
     
-    text = f"❌ Отменить рейс сегодня:\nВыберите время:"
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
-    await callback.answer()
+    kb = ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="🛑 Отменить Жирновск→Медведица")],
+        [KeyboardButton(text="🛑 Отменить Медведица→Жирновск")],
+        [KeyboardButton(text="🔙 Назад")]
+    ], resize_keyboard=True)
+    
+    await msg.answer(text, reply_markup=kb)
 
-@dp.callback_query(F.data.startswith("cancel_"))
-async def process_cancel(callback: CallbackQuery):
-    time_str = callback.data.split('_')[-1]
-    direction = "Жирновск→Медведица" if "to_" in callback.data else "Медведица→Жирновск"
-    today = datetime.now().strftime('%Y-%m-%d')
+@dp.message(F.text == "🛑 Отменить Жирновск→Медведица")
+async def cancel_to_medveditsa(msg: Message):
+    if not is_admin(msg.from_user.id): return
     
+    today = datetime.now().strftime('%Y-%m-%d')
     data = load_schedule()
     if today not in data['изменения']:
         data['изменения'][today] = {}
-    
-    current_times = data['изменения'][today].get(direction, get_schedule(direction, today))
-    new_times = [t for t in current_times if t != time_str]
-    
-    data['изменения'][today][direction] = new_times
+    data['изменения'][today]["Жирновск→Медведица"] = []
     save_schedule(data)
     
-    if data.get('notify_chat'):
-        await bot.send_message(
-            data['notify_chat'],
-            f"🚨 ОТМЕНЁН рейс!\n{direction} в {time_str}\n📅 Сегодня"
-        )
-    
-    await callback.answer("✅ Рейс отменён!", show_alert=True)
+    await msg.answer("✅ Все рейсы Жирновск→Медведица отменены!")
+    await admin_panel(msg)
 
-@dp.callback_query(F.data == "holidays")
-async def holidays_menu(callback: CallbackQuery):
+@dp.message(F.text == "🛑 Отменить Медведица→Жирновск")
+async def cancel_back(msg: Message):
+    if not is_admin(msg.from_user.id): return
+    
+    today = datetime.now().strftime('%Y-%m-%d')
+    data = load_schedule()
+    if today not in data['изменения']:
+        data['изменения'][today] = {}
+    data['изменения'][today]["Медведица→Жирновск"] = []
+    save_schedule(data)
+    
+    await msg.answer("✅ Все рейсы Медведица→Жирновск отменены!")
+    await admin_panel(msg)
+
+@dp.message(F.text == "🎉 Праздники")
+async def holidays_menu(msg: Message):
+    if not is_admin(msg.from_user.id): return
+    
     data = load_schedule()
     holidays = data.get('праздники', [])
     
-    kb = [
-        [InlineKeyboardButton("➕ Добавить", callback_data="add_holiday")],
-        [InlineKeyboardButton("➖ Удалить", callback_data="remove_holiday")]
-    ]
-    for date in holidays[:8]:
-        kb.append([InlineKeyboardButton(f"🗑️ {date}", callback_data=f"del_holiday_{date}")])
-    kb.append([InlineKeyboardButton("🔙 Главное меню", callback_data="admin_main")])
+    kb = ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="➕ Добавить праздник")],
+        [KeyboardButton(text="➖ Удалить праздник")],
+        [KeyboardButton(text="🔙 Назад")]
+    ], resize_keyboard=True)
     
-    text = f"🎉 Праздники:\n" + '\n'.join([f"• {h}" for h in holidays]) or "нет праздников"
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
-    await callback.answer()
+    text = "🎉 Праздники:\n" + "\n".join([f"• {h}" for h in holidays]) or "Праздников нет"
+    await msg.answer(text, reply_markup=kb)
 
-@dp.callback_query(F.data.startswith("del_holiday_"))
-async def delete_holiday(callback: CallbackQuery):
-    date = callback.data.replace("del_holiday_", "")
-    data = load_schedule()
-    data['праздники'] = [h for h in data['праздники'] if h != date]
-    save_schedule(data)
-    await callback.answer(f"✅ {date} больше не праздник!", show_alert=True)
-
-@dp.callback_query(F.data == "add_holiday")
-async def add_holiday(callback: CallbackQuery, state: FSMContext):
+@dp.message(F.text == "➕ Добавить праздник")
+async def add_holiday(msg: Message, state: FSMContext):
+    if not is_admin(msg.from_user.id): return
     await state.set_state(AdminStates.waiting_holiday_date)
-    await callback.message.edit_text("📅 Дата праздника (YYYY-MM-DD):")
-    await callback.answer()
+    await msg.answer("📅 Дата (YYYY-MM-DD):")
 
 @dp.message(AdminStates.waiting_holiday_date)
 async def save_holiday(msg: Message, state: FSMContext):
@@ -445,19 +411,99 @@ async def save_holiday(msg: Message, state: FSMContext):
         if date_str not in data['праздники']:
             data['праздники'].append(date_str)
             save_schedule(data)
-            await msg.answer(f"✅ {date_str} - выходной!")
+            await msg.answer(f"✅ {date_str} добавлен в праздники!")
         else:
             await msg.answer("❌ Уже праздник!")
     except:
         await msg.answer("❌ Формат: YYYY-MM-DD")
     await state.clear()
+    await holidays_menu(msg)
+
+@dp.message(F.text == "➖ Удалить праздник")
+async def remove_holiday_menu(msg: Message):
+    if not is_admin(msg.from_user.id): return
+    
+    data = load_schedule()
+    holidays = data.get('праздники', [])
+    
+    if not holidays:
+        await msg.answer("Нет праздников для удаления")
+        return
+    
+    kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=f"🗑️ {h}")] for h in holidays[:10]] + [[KeyboardButton(text="🔙 Назад")]], resize_keyboard=True)
+    await msg.answer("Выберите праздник для удаления:", reply_markup=kb)
+
+@dp.message(F.text.startswith("🗑️ "))
+async def delete_holiday(msg: Message):
+    if not is_admin(msg.from_user.id): return
+    
+    date = msg.text[2:].strip()
+    data = load_schedule()
+    data['праздники'] = [h for h in data['праздники'] if h != date]
+    save_schedule(data)
+    await msg.answer(f"✅ {date} удалён!")
+    await holidays_menu(msg)
+
+@dp.message(F.text == "📢 Чат уведомлений")
+async def notify_chat_menu(msg: Message, state: FSMContext):
+    if not is_admin(msg.from_user.id): return
+    
+    data = load_schedule()
+    chat_id = data.get('notify_chat')
+    text = f"📢 Чат уведомлений: {chat_id or 'НЕ УСТАНОВЛЕН'}\n\nОтправьте ID чата:"
+    
+    kb = ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="❌ Отключить")],
+        [KeyboardButton(text="🔙 Назад")]
+    ], resize_keyboard=True)
+    
+    await state.set_state(AdminStates.waiting_notify_chat)
+    await msg.answer(text, reply_markup=kb)
+
+@dp.message(AdminStates.waiting_notify_chat)
+async def save_notify_chat(msg: Message, state: FSMContext):
+    text = msg.text.strip()
+    data = load_schedule()
+    
+    if text == "❌ Отключить":
+        data['notify_chat'] = None
+        await msg.answer("✅ Уведомления отключены")
+    else:
+        data['notify_chat'] = int(text)
+        await msg.answer(f"✅ Чат {text} установлен")
+    
+    save_schedule(data)
+    await state.clear()
+    await admin_panel(msg)
+
+@dp.message(F.text == "📊 Статистика")
+async def show_stats(msg: Message):
+    if not is_admin(msg.from_user.id): return
+    
+    data = load_schedule()
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    text = f"""📊 СТАТИСТИКА:
+
+📅 Сегодня: {today}
+📍 GPS активен: {'✅' if data.get('автобус_позиция') else '❌'}
+🎉 Праздников: {len(data.get('праздники', []))}
+📢 Уведомления: {data.get('notify_chat', 'откл')}
+
+Расписание будни: {len(data['базовое_расписание']['будни']['Жирновск→Медведица'])} рейсов"""
+    
+    await msg.answer(text)
+
+# 🔙 НАВИГАЦИЯ
+@dp.message(F.text.in_(["🔙 Главное меню", "🔙 Назад"]))
+async def back_to_main(msg: Message):
+    await start_handler(msg)
 
 async def main():
     init_schedule()
-    print("🚀 Бот автобуса Жирновск ↔ Медведица запущен!")
+    print("🚀 Бот автобуса запущен!")
     print(f"👨‍💼 Админы: {ADMIN_IDS}")
     print(f"🚗 Водитель: {DRIVER_ID}")
-    print("📱 /start, /расписание, /admin")
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
